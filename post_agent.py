@@ -36,4 +36,4 @@ import os
 
   if __name__ == "__main__":
       content = generate_post()
-      post_to_linkedin(content)
+      post_to_linkedin(content
