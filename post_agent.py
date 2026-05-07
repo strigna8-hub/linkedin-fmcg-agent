@@ -7,37 +7,15 @@ import os
       message = client.messages.create(
           model="claude-sonnet-4-6",
           max_tokens=1024,
-          messages=[
-              {
-                  "role": "user",
-                  "content": """Write a professional LinkedIn post about the FMCG food sector.
-
-  Topics to rotate between:
-  - Latest trends in FMCG food industry
-  - Consumer behavior shifts in food and beverages
-  - Sustainability and packaging innovations
-  - Health and wellness food trends
-  - Supply chain insights in food sector
-  - New product launches and market opportunities
-  - Digital transformation in FMCG
-
-  Requirements:
-  - 150-200 words
-  - Professional but engaging tone
-  - Include 3-5 relevant hashtags at the end
-  - No emojis
-  - End with a thought-provoking question to drive engagement"""
-              }
-          ]
+          messages=[{"role": "user", "content": "Write a professional LinkedIn post about the FMCG food sector. Cover
+  topics like trends, consumer behavior, sustainability, health food trends, supply chain, or digital transformation.
+  Write 150-200 words, professional tone, include 3-5 hashtags at the end, no emojis, end with a question."}]
       )
       return message.content[0].text
 
   def post_to_linkedin(content):
       token = os.environ["LINKEDIN_ACCESS_TOKEN"]
-      headers = {
-          "Authorization": f"Bearer {token}",
-          "Content-Type": "application/json"
-      }
+      headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
       profile = requests.get("https://api.linkedin.com/v2/userinfo", headers=headers)
       profile.raise_for_status()
       user_id = profile.json()["sub"]
@@ -46,20 +24,15 @@ import os
           "lifecycleState": "PUBLISHED",
           "specificContent": {
               "com.linkedin.ugc.ShareContent": {
-                  "shareCommentary": {
-                      "text": content
-                  },
+                  "shareCommentary": {"text": content},
                   "shareMediaCategory": "NONE"
               }
           },
-          "visibility": {
-              "com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"
-          }
+          "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"}
       }
       response = requests.post("https://api.linkedin.com/v2/ugcPosts", headers=headers, json=post_data)
       response.raise_for_status()
       print("Post published successfully!")
-      print(f"Post content:\n{content}")
 
   if __name__ == "__main__":
       content = generate_post()
