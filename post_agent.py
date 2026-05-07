@@ -1,4 +1,4 @@
-import os
+ import os
   import anthropic
   import requests
 
@@ -80,40 +80,3 @@ import os
       post_to_linkedin(content)
 
   Click "Commit changes" → "Commit directly to main".
-
-  ---
-  File 2: .github/workflows/post.yml
-
-  Click "Add file" → "Create new file" → type this as the filename exactly:
-  .github/workflows/post.yml
-
-  Paste this:
-
-  name: FMCG LinkedIn Post Agent
-
-  on:
-    schedule:
-      - cron: '0 9 */2 * *'  # Every 2 days at 9:00 AM UTC
-    workflow_dispatch:  # Allows manual trigger
-
-  jobs:
-    post:
-      runs-on: ubuntu-latest
-
-      steps:
-        - name: Checkout code
-          uses: actions/checkout@v4
-
-        - name: Set up Python
-          uses: actions/setup-python@v5
-          with:
-            python-version: '3.11'
-
-        - name: Install dependencies
-          run: pip install anthropic requests
-
-        - name: Run posting agent
-          env:
-            ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-            LINKEDIN_ACCESS_TOKEN: ${{ secrets.LINKEDIN_ACCESS_TOKEN }}
-          run: python post_agent.py
