@@ -3,7 +3,7 @@ import anthropic
 import requests
 
 def generate_post():
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"].strip())
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
@@ -12,7 +12,7 @@ def generate_post():
     return message.content[0].text
 
 def post_to_linkedin(content):
-    token = os.environ["LINKEDIN_ACCESS_TOKEN"]
+    token = os.environ["LINKEDIN_ACCESS_TOKEN"].strip()
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     profile = requests.get("https://api.linkedin.com/v2/userinfo", headers=headers)
     profile.raise_for_status()
