@@ -5,32 +5,49 @@ import re
 import anthropic
 import requests
 
-POST_PROMPT = """You write LinkedIn posts about FMCG trends.
+BASE_PROMPT = """You write LinkedIn posts about FMCG trends that actually drive engagement.
 
-Cover fresh trends across ALL FMCG categories — confectionery, food, beverages, and cosmetics/personal care. Pick ONE category and ONE specific trend per post, with a concrete angle.
+Cover fresh trends across ALL FMCG categories — confectionery, food, beverages, cosmetics/personal care. Pick ONE category and ONE specific trend per post.
 
 Trend areas to draw from:
-- Confectionery: sugar reduction, premiumization, dark cocoa surge, functional chocolate, mochi & Asian crossover, mini-format growth
+- Confectionery: sugar reduction, premiumization, dark cocoa surge, functional chocolate, mochi/Asian crossover, mini-format growth
 - Food: GLP-1 impact on snacking, protein everywhere, gut health, plant-based plateau, clean-label backlash, hyper-local sourcing
 - Beverages: functional drinks (mushroom, adaptogen), low/no alcohol, prebiotic sodas, energy drinks for women, hyper-hydration
 - Cosmetics & personal care: skinification of haircare, fragrance boom, biotech ingredients, men's grooming, refillable packaging
 - Cross-category: AI in product development, retail media networks, dark stores, sustainability labelling, traceability tech
 
-Rules for the post:
-- Maximum 100 words — tight and punchy, every sentence earns its place
-- Open with a hook: a surprising stat, a tiny story, or a sharp observation
-- Make ONE clear point with substance — specific examples beat vague claims
-- Insightful, professional tone — like someone who actually works in FMCG
-- No emojis
-- 3-5 relevant hashtags at the end
-- End with an open question to the audience
-- Avoid clichés like "FMCG is changing rapidly" or "consumers are evolving"
+CRITICAL ENGAGEMENT RULES (follow all):
 
-Respond ONLY with valid JSON, no markdown fences, in this exact format:
-{
-  "post": "<full post text including hashtags and question>",
-  "image_keyword": "<2-4 word search query for a relevant Pexels stock photo, e.g. 'chocolate bars shelf' or 'cosmetics store'>"
-}"""
+1. HOOK. The first sentence must stop the scroll — only ~210 characters of the post show before LinkedIn's "see more" cutoff. Open with a specific number, a contrarian claim, or a tiny story. Forbidden openers: "In today's", "FMCG is", "The world of", "As we", "It's no secret", "Did you know".
+
+2. CONCRETE. Every post must name at least one real brand (e.g. Nestlé, L'Oréal, Coca-Cola, Unilever, Mondelez, P&G, PepsiCo, Estée Lauder, Mars, Danone, Kraft Heinz, AB InBev, Diageo, Reckitt, Mondelēz, Ferrero, Haribo) AND/OR include a specific stat with a number.
+
+3. FORMATTING. Use short lines. Each sentence on its own line. Break ideas with blank lines between mini-paragraphs. Walls of text kill engagement on LinkedIn.
+
+4. BANNED PHRASES (they scream "AI wrote this"): "Moreover", "delve into", "navigate the landscape", "in today's fast-paced", "leveraging", "synergies", "robust", "game-changer", "ever-evolving", "paradigm shift", "deep dive", "unpack", "tapestry". Use em-dashes sparingly — max ONE per post.
+
+5. CLOSING QUESTION. Must be a forced-choice or strong-opinion prompt. NOT "What do you think?" or "Curious to hear your thoughts." Examples: "Is shrinkflation theft or inflation in disguise?", "Better 2026 bet: prebiotic sodas or non-alc spirits?", "Would you pay £8 for a chocolate bar?"
+
+6. LENGTH. Max 100 words total. Tight beats long.
+
+7. NO EMOJIS. None.
+
+8. HASHTAGS. 3-5 relevant ones on a single line after a blank line.
+
+{mode_directive}
+
+Respond ONLY with valid JSON, no markdown fences. Preserve line breaks inside the post string as \\n:
+{{
+  "post": "<full post text with \\n line breaks, including hashtags and question>",
+  "image_keyword": "<2-4 word Pexels search query, e.g. 'chocolate bars shelf' or 'cosmetics store'>"
+}}"""
+
+CONTRARIAN_DIRECTIVE = """9. CONTRARIAN MODE (apply this run): Challenge a popular FMCG belief or consensus view. Argue against the mainstream take. Be provocative but defensible — back the contrarian claim with a specific reason or example."""
+
+
+def build_post_prompt():
+    mode = CONTRARIAN_DIRECTIVE if random.random() < 0.33 else ""
+    return BASE_PROMPT.replace("{mode_directive}", mode)
 
 
 def generate_post():
@@ -38,7 +55,7 @@ def generate_post():
     message = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1024,
-        messages=[{"role": "user", "content": POST_PROMPT}],
+        messages=[{"role": "user", "content": build_post_prompt()}],
     )
     response_text = message.content[0].text
     match = re.search(r"\{.*\}", response_text, re.DOTALL)
