@@ -16,7 +16,7 @@ Pick ONE of these three topic areas at random and dig into a specific, concrete 
    Examples: shrinkflation noticed at the supermarket, absurd packaging claims ("now with 20% less air!"), bizarre product names, the psychology of end-cap displays, weird flavor launches, the eternal mystery of "natural flavors", etc.
 
 Rules for the post:
-- 150-200 words
+- Maximum 100 words — be tight and punchy, every sentence earns its place
 - Open with a hook: a surprising stat, a tiny story, or a sharp observation
 - Make ONE clear point with substance — specific examples beat vague claims
 - Tone:
