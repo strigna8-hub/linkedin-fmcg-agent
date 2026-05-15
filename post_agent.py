@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 import random
@@ -5,22 +6,52 @@ import re
 import anthropic
 import requests
 
+HISTORY_FILE = "post_history.json"
+HISTORY_LOOKBACK = 10
+HISTORY_MAX = 30
+
+WEEKDAY_CATEGORIES = {
+    0: ("confectionery", "Confectionery: sugar reduction, premiumization, dark cocoa surge, functional chocolate, mochi/Asian crossover, mini-format growth"),
+    1: ("food", "Food: GLP-1 impact on snacking, protein everywhere, gut health, plant-based plateau, clean-label backlash, hyper-local sourcing"),
+    2: ("beverages", "Beverages: functional drinks (mushroom, adaptogen), low/no alcohol, prebiotic sodas, energy drinks for women, hyper-hydration"),
+    3: ("cosmetics", "Cosmetics & personal care: skinification of haircare, fragrance boom, biotech ingredients, men's grooming, refillable packaging"),
+    4: ("fast food", "Fast food & QSR: McDonald's, Burger King, KFC, Starbucks, Chick-fil-A, Subway, Domino's — value menu wars, viral LTOs, healthier reformulations, GLP-1 impact on traffic, chicken vs beef wars, breakfast battles, app/loyalty economics"),
+}
+
+POST_FORMATS = {
+    "case_study": "FORMAT — MINI CASE STUDY. Structure: one brand, one specific recent move from the news, the surprising number behind it, what it signals for the category. One narrative thread. Tight and concrete.",
+    "stat_bomb": "FORMAT — STAT BOMB. Open with a one-line hook, then stack 3-4 punchy numbers (one per line, no fluff between them) tied to the story or the category right now. Close with a one-line takeaway, then the question. Numbers should make people stop scrolling.",
+    "prediction": "FORMAT — PREDICTION. Make a bold, falsifiable call about where this category goes in the next 6-12 months. Back the prediction with the actual current signal you found in the news. End the question framed as agree/disagree.",
+    "listicle": "FORMAT — LISTICLE. Frame as '3 things happening in [category] right now' or similar. Three crisp bullets (use '-' or numbers), each with a real brand or specific stat. Then a one-line closer and the question.",
+}
+
+WRITING_STYLES = [
+    "conversational — like texting a smart friend, contractions, casual rhythm",
+    "blunt and journalistic — no fluff, short declarative sentences, reporter tone",
+    "analytical and slightly dry — numbers-forward, treat it like an analyst note",
+    "witty and a touch sarcastic — dry humor, no try-hard energy",
+    "punchy and pop-culture aware — references that land, modern voice",
+]
+
 BASE_PROMPT = """You write LinkedIn posts about FMCG trends that actually drive engagement.
 
-Cover fresh trends across ALL FMCG categories — confectionery, food, beverages, cosmetics/personal care. Pick ONE category and ONE specific trend per post.
+TODAY'S CATEGORY: {category_name}
+TODAY'S TREND AREAS: {category_trends}
 
-Trend areas to draw from:
-- Confectionery: sugar reduction, premiumization, dark cocoa surge, functional chocolate, mochi/Asian crossover, mini-format growth
-- Food: GLP-1 impact on snacking, protein everywhere, gut health, plant-based plateau, clean-label backlash, hyper-local sourcing
-- Beverages: functional drinks (mushroom, adaptogen), low/no alcohol, prebiotic sodas, energy drinks for women, hyper-hydration
-- Cosmetics & personal care: skinification of haircare, fragrance boom, biotech ingredients, men's grooming, refillable packaging
-- Cross-category: AI in product development, retail media networks, dark stores, sustainability labelling, traceability tech
+POST FORMAT FOR THIS RUN: {post_format}
+
+WRITING STYLE FOR THIS POST: Write in a voice that is {writing_style}. The voice should feel distinct — not the generic LinkedIn-thought-leader register.
+
+Today is {today}. Use the web_search tool to find ONE specific, recent news story, launch, deal, earnings note, or trend from the LAST 14 DAYS within {category_name}. Search terms like "{category_name} news {month_year}", "{category_name} launch", "{category_name} trend", or a specific brand + recent. Pick a story that's concrete and recent — not generic evergreen content.
+
+AVOID these recent topics (already covered in the last {history_count} posts):
+{avoid_list}
 
 CRITICAL ENGAGEMENT RULES (follow all):
 
 1. HOOK. The first sentence must stop the scroll — only ~210 characters of the post show before LinkedIn's "see more" cutoff. Open with a specific number, a contrarian claim, or a tiny story. Forbidden openers: "In today's", "FMCG is", "The world of", "As we", "It's no secret", "Did you know".
 
-2. CONCRETE. Every post must name at least one real brand (e.g. Nestlé, L'Oréal, Coca-Cola, Unilever, Mondelez, P&G, PepsiCo, Estée Lauder, Mars, Danone, Kraft Heinz, AB InBev, Diageo, Reckitt, Mondelēz, Ferrero, Haribo) AND/OR include a specific stat with a number.
+2. CONCRETE. Every post must name at least one real brand from the news you found AND/OR include a specific stat with a number. Reference the actual news event you found.
 
 3. FORMATTING. Use short lines. Each sentence on its own line. Break ideas with blank lines between mini-paragraphs. Walls of text kill engagement on LinkedIn.
 
@@ -36,32 +67,105 @@ CRITICAL ENGAGEMENT RULES (follow all):
 
 {mode_directive}
 
-Respond ONLY with valid JSON, no markdown fences. Preserve line breaks inside the post string as \\n:
+After researching, respond with your FINAL ANSWER as valid JSON only (no markdown fences, no preamble). Preserve line breaks inside the post string as \\n:
 {{
   "post": "<full post text with \\n line breaks, including hashtags and question>",
-  "image_keyword": "<2-4 word Pexels search query, e.g. 'chocolate bars shelf' or 'cosmetics store'>"
+  "image_keyword": "<2-4 word Pexels search query, e.g. 'chocolate bars shelf' or 'cosmetics store'>",
+  "topic": "<5-10 word summary of the specific topic/story this post covers, for history tracking>"
 }}"""
 
 CONTRARIAN_DIRECTIVE = """9. CONTRARIAN MODE (apply this run): Challenge a popular FMCG belief or consensus view. Argue against the mainstream take. Be provocative but defensible — back the contrarian claim with a specific reason or example."""
 
-
-def build_post_prompt():
-    mode = CONTRARIAN_DIRECTIVE if random.random() < 0.33 else ""
-    return BASE_PROMPT.replace("{mode_directive}", mode)
+POLITICAL_HUMOR_DIRECTIVE = """9. POLITICAL POP-CULTURE ANGLE (apply this run): Hook the post around a famous moment where a politician or world leader intersected with a food, beverage, fast-food, or consumer brand — e.g. Trump's McDonald's order, Obama's beer summit, Macron's protein routine, Boris Johnson's fridge moments, world leader photo-ops at brands. Connect the joke back to the actual news story you found. Be observational and witty, not partisan or mean — the joke should make smart people across the political spectrum smile. No insults to specific politicians, no taking sides."""
 
 
-def generate_post():
+def pick_category():
+    weekday = datetime.datetime.utcnow().weekday()
+    return WEEKDAY_CATEGORIES.get(weekday, WEEKDAY_CATEGORIES[1])
+
+
+def load_history():
+    if not os.path.exists(HISTORY_FILE):
+        return []
+    try:
+        with open(HISTORY_FILE) as f:
+            data = json.load(f)
+        return data.get("posts", [])
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def save_history(posts):
+    trimmed = posts[-HISTORY_MAX:]
+    with open(HISTORY_FILE, "w") as f:
+        json.dump({"posts": trimmed}, f, indent=2)
+
+
+def build_avoid_list(history):
+    recent = history[-HISTORY_LOOKBACK:]
+    if not recent:
+        return "(none yet — this is one of the first posts)"
+    return "\n".join(f"- [{p.get('date', '?')}, {p.get('category', '?')}] {p.get('topic', '?')}" for p in recent)
+
+
+def pick_mode_directive():
+    roll = random.random()
+    if roll < 0.25:
+        return "contrarian", CONTRARIAN_DIRECTIVE
+    if roll < 0.50:
+        return "political_humor", POLITICAL_HUMOR_DIRECTIVE
+    return "neutral", ""
+
+
+def pick_format():
+    name = random.choice(list(POST_FORMATS.keys()))
+    return name, POST_FORMATS[name]
+
+
+def build_post_prompt(category_name, category_trends, history):
+    mode_name, mode_directive = pick_mode_directive()
+    format_name, format_directive = pick_format()
+    writing_style = random.choice(WRITING_STYLES)
+    today = datetime.date.today()
+    prompt = BASE_PROMPT.format(
+        category_name=category_name,
+        category_trends=category_trends,
+        post_format=format_directive,
+        writing_style=writing_style,
+        today=today.isoformat(),
+        month_year=today.strftime("%B %Y"),
+        history_count=min(len(history), HISTORY_LOOKBACK),
+        avoid_list=build_avoid_list(history),
+        mode_directive=mode_directive,
+    )
+    return prompt, {"format": format_name, "style": writing_style, "mode": mode_name}
+
+
+def generate_post(category_name, category_trends, history):
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"].strip())
+    prompt, choices = build_post_prompt(category_name, category_trends, history)
+    print(f"Format: {choices['format']} | Mode: {choices['mode']}")
+    print(f"Writing style: {choices['style']}")
     message = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1024,
-        messages=[{"role": "user", "content": build_post_prompt()}],
+        max_tokens=4096,
+        tools=[{"type": "web_search_20260209", "name": "web_search"}],
+        messages=[{"role": "user", "content": prompt}],
     )
-    response_text = message.content[0].text
-    match = re.search(r"\{.*\}", response_text, re.DOTALL)
-    if not match:
-        raise ValueError(f"No JSON object in model response: {response_text}")
-    return json.loads(match.group(0))
+
+    text_chunks = [b.text for b in message.content if b.type == "text"]
+    full_text = "\n".join(text_chunks)
+
+    matches = list(re.finditer(r"\{[^{}]*\"post\"[^{}]*\"image_keyword\"[^{}]*\}", full_text, re.DOTALL))
+    if not matches:
+        matches = list(re.finditer(r"\{.*?\}", full_text, re.DOTALL))
+    if not matches:
+        raise ValueError(f"No JSON object in model response. Got:\n{full_text}")
+
+    last_json = matches[-1].group(0)
+    result = json.loads(last_json)
+    result["_choices"] = choices
+    return result
 
 
 def fetch_pexels_image(keyword, api_key):
@@ -156,9 +260,16 @@ def post_to_linkedin(content, image_bytes=None):
 
 
 if __name__ == "__main__":
-    result = generate_post()
+    category_name, category_trends = pick_category()
+    history = load_history()
+    print(f"Today's category: {category_name}")
+    print(f"History entries loaded: {len(history)}")
+
+    result = generate_post(category_name, category_trends, history)
     post_text = result["post"]
     image_keyword = result.get("image_keyword", "")
+    topic = result.get("topic", "(no topic recorded)")
+    print(f"Topic: {topic}")
 
     image_bytes = None
     pexels_key = os.environ.get("PEXELS_API_KEY", "").strip()
@@ -175,3 +286,16 @@ if __name__ == "__main__":
         print("Pexels key or keyword missing — posting text only")
 
     post_to_linkedin(post_text, image_bytes)
+
+    choices = result.get("_choices", {})
+    history.append({
+        "date": datetime.date.today().isoformat(),
+        "category": category_name,
+        "topic": topic,
+        "image_keyword": image_keyword,
+        "format": choices.get("format"),
+        "style": choices.get("style"),
+        "mode": choices.get("mode"),
+    })
+    save_history(history)
+    print(f"History updated. Total entries: {len(history)}")
